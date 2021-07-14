@@ -1,4 +1,4 @@
 #!/bin/sh
 
-python2 -c 'import watchGo; watchGo.watchBoard()'
+python3 -c 'import watchGo; watchGo.watchBoard()'
 

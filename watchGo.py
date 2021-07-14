@@ -1,11 +1,57 @@
+#_*_coding:utf8_*_
 import numpy as np
 import cv2
 from math import sqrt
 from os.path import exists
 
-# variables
+#设置gstreamer管道参数
+def gstreamer_pipeline(
+    capture_width=1280,  #摄像头预捕获的图像宽度
+    capture_height=720,  #摄像头预捕获的图像高度
+    display_width=1280,  #窗口显示的图像宽度
+    display_height=720,  #窗口显示的图像高度
+    framerate=60,       #捕获帧率
+    flip_method=0,      #是否旋转图像
+):
+    return (
+        "nvarguscamerasrc ! "
+        "video/x-raw(memory:NVMM), "
+        "width=(int)%d, height=(int)%d, "
+        "format=(string)NV12, framerate=(fraction)%d/1 ! "
+        "nvvidconv flip-method=%d ! "
+        "video/x-raw, width=(int)%d, height=(int)%d, format=(string)BGRx ! "
+        "videoconvert ! "
+        "video/x-raw, format=(string)BGR ! appsink"
+        % (
+            capture_width,
+            capture_height,
+            framerate,
+            flip_method,
+            display_width,
+            display_height,
+        )
+    )
 
-cap = cv2.VideoCapture(0)
+
+# # variables
+# capture_width = 1280
+# capture_height = 720
+# display_width = 1280
+# display_height = 720
+# framerate = 60
+# flip_method = 0
+
+#     # 创建管道
+# print(gstreamer_pipeline(capture_width,capture_height,display_width,display_height,framerate,flip_method))
+
+#     #管道与视频流绑定
+# cap = cv2.VideoCapture(gstreamer_pipeline(flip_method=0), cv2.CAP_GSTREAMER)
+#cap = cv2.VideoCapture(0)
+#cap.set(cv2.CAP_PROP_FRAME_WIDTH, 3280)
+#cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 2464)
+# #cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+#cap.set(cv2.CAP_PROP_FPS, 30) 
+
 boardSize = 19 # might also be 9 or 13
 frameSize = None # watchBoard will set this to the size of the video frame
 
@@ -47,13 +93,29 @@ def closeWindow(win="video"):
         cv2.waitKey(1)
 
 def readImage():
+    global cap
+    
     # read image from cap, remapping it if we have mapx, mapy
     # assumes camera is already open
     retval, img = cap.read()
-    if mapx is not None and mapy is not None:
-        return cv2.remap(img, mapx, mapy, cv2.INTER_LINEAR)
-    else:
-        return img
+    img = undistort(img)
+# 图像太大需要调整
+    height, width = img.shape[0:2]
+    #print("height=",height,"width=",width)
+    if width > 800:
+            new_width = 640
+            new_height = int(new_width/width*height)
+            img = cv2.resize(img, (new_width, new_height))
+    #print("new_height=",new_height,"new_width=",new_width)
+    
+
+    # print(height,width,mapx,mapy)
+    # if mapx is not None and mapy is not None:
+    #     return cv2.remap(img, mapx, mapy, cv2.INTER_LINEAR)
+      
+    # else:
+    #     return img
+    return img            
 
 # finding and watching a go board
 
@@ -129,6 +191,8 @@ def readBoard(image):
     # now find the corners of a rectangle around those spots
     # that seem most likely to be the board & any stones on it
     group = findGroup(empties + blacks + whites)
+    print(empties,blacks,whites)
+    print(group)
     if group is None:
         return output, imgCorners
     hull = cv2.convexHull(np.array(group, dtype="int32"))
@@ -163,6 +227,8 @@ def readBoard(image):
                 y = int(round(i[1]))
                 if x >= 0 and x < boardSize and y >= 0 and y < boardSize:
                     output[x][y] = 2
+        #print(output)
+        print(imgCorners)
 
     return output, imgCorners
 
@@ -302,12 +368,12 @@ def blankBoard(boardBlockSize):
                  (spot, halfBoardBlock),
                  (spot, boardSide - halfBoardBlock),
                  black,
-                 boardBlockSize / 10)
+                 int(boardBlockSize / 10))
         cv2.line(blankBoard,
                  (halfBoardBlock, spot),
                  (boardSide - halfBoardBlock, spot),
                  black,
-                 boardBlockSize / 10)
+                  int(boardBlockSize / 10))
     if boardSize == 19:
         spots = [[3, 3], [9, 3], [15, 3],
                  [3, 9], [9, 9], [15, 9],
@@ -354,11 +420,27 @@ def drawBoard(board, size=(500, 500)):
 
 def watchBoard():
     global frameSize
-    cap.open(0)
+    global cap
+    capture_width = 1280
+    capture_height = 720
+    display_width = 1280
+    display_height = 720
+    framerate = 60
+    flip_method = 0
+
+    # 创建管道
+    print(gstreamer_pipeline(capture_width,capture_height,display_width,display_height,framerate,flip_method))
+
+    #管道与视频流绑定
+    cap = cv2.VideoCapture(gstreamer_pipeline(flip_method=0), cv2.CAP_GSTREAMER)
+    #cap.open(0)
+    #cap = cv2.VideoCapture(gstreamer_pipeline(flip_method=0), cv2.CAP_GSTREAMER)
+
 
     imgCorners = None
 
     # initialize the video display
+    #ret_val, img = cap.read()
     img = readImage()
     (h, w, d) = img.shape
     frameSize = (w, h)
@@ -367,6 +449,7 @@ def watchBoard():
 
     # show a grayed-out blank board to begin with
     board = np.zeros((boardSize, boardSize), dtype="uint8")
+    print(board)
     cv2.imshow("board", cv2.cvtColor(drawBoard(board), cv2.COLOR_BGR2GRAY))
     
     # fill a buffer with video frames
@@ -407,6 +490,7 @@ def watchBoard():
             stillFrames += 1
             if stillFrames == (bufSize + 1): # if the video stands still for long enough, read the board
                 board, imgCorners = readBoard(bkg)
+                print(board)
                 cv2.imshow("board", drawBoard(board))
                 if imgCorners is not None and len(imgCorners) > 3: # look for movement around where the board is:
                     roi = np.zeros((h, w), dtype="uint8")
@@ -429,3 +513,21 @@ def watchBoard():
     cap.release()
     closeWindow("camera")
     closeWindow("board")
+
+
+def undistort(frame): 
+    fx = 783.7093 
+    cx = 653.2896 
+    fy = 783.5000 
+    cy = 393.6671 
+    k1, k2, p1, p2, k3 = -0.3500, 0.1379, 0.0, 0.0, 0.0 
+    # 相机坐标系到像素坐标系的转换矩阵 
+    k = np.array([ [fx, 0, cx], [0, fy, cy], [0, 0, 1] ]) 
+    # 畸变系数 
+    d = np.array([ k1, k2, p1, p2, k3 ]) 
+    h, w = frame.shape[:2] 
+    mapx, mapy = cv2.initUndistortRectifyMap(k, d, None, k, (w, h), 5) 
+    return cv2.remap(frame, mapx, mapy, cv2.INTER_LINEAR)
+
+if __name__ == "__main__":
+    watchBoard()
